@@ -104,14 +104,7 @@ All tools except `browser_tabs`, `browser_close`, and `browser_install` support 
 ### Install
 
 ```bash
-npm install
-npm run build
-```
-
-### Run locally
-
-```bash
-npm run dev
+npm install -g playwright-mcp-tabbed
 ```
 
 ### Add to Cursor
@@ -122,9 +115,9 @@ Add this to `~/.cursor/mcp.json`:
 {
   "mcpServers": {
     "playwright-tabbed": {
-      "command": "node",
+      "command": "npx",
       "args": [
-        "/absolute/path/to/playwright-mcp-tabbed/dist/index.js"
+        "playwright-mcp-tabbed"
       ]
     }
   }

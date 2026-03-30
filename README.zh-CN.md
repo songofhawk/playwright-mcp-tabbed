@@ -104,14 +104,7 @@
 ### 安装
 
 ```bash
-npm install
-npm run build
-```
-
-### 本地开发
-
-```bash
-npm run dev
+npm install -g playwright-mcp-tabbed
 ```
 
 ### 在 Cursor 中配置
@@ -122,9 +115,9 @@ npm run dev
 {
   "mcpServers": {
     "playwright-tabbed": {
-      "command": "node",
+      "command": "npx",
       "args": [
-        "/absolute/path/to/playwright-mcp-tabbed/dist/index.js"
+        "playwright-mcp-tabbed"
       ]
     }
   }
