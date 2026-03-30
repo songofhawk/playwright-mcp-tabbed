@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>playwright-mcp-tabbed</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg-1: #0b1020;
+        --bg-2: #10172a;
+        --card: rgba(17, 24, 39, 0.82);
+        --border: rgba(148, 163, 184, 0.18);
+        --text: #e5eefb;
+        --muted: #8ea0bd;
+        --accent: #60a5fa;
+        --accent-2: #22c55e;
+        --accent-3: #f59e0b;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background:
+          radial-gradient(circle at top left, rgba(96, 165, 250, 0.22), transparent 30%),
+          radial-gradient(circle at bottom right, rgba(34, 197, 94, 0.16), transparent 28%),
+          linear-gradient(135deg, var(--bg-1), var(--bg-2));
+        color: var(--text);
+      }
+
+      .frame {
+        width: 1440px;
+        height: 900px;
+        padding: 42px;
+      }
+
+      .hero {
+        height: 100%;
+        display: grid;
+        grid-template-columns: 1.15fr 0.85fr;
+        gap: 28px;
+      }
+
+      .panel {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 28px;
+        backdrop-filter: blur(14px);
+        box-shadow: 0 18px 60px rgba(0, 0, 0, 0.35);
+      }
+
+      .left {
+        padding: 40px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        gap: 8px;
+        align-items: center;
+        color: var(--accent);
+        font-size: 18px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        background: var(--accent);
+        box-shadow: 0 0 20px rgba(96, 165, 250, 0.9);
+      }
+
+      h1 {
+        margin: 18px 0 14px;
+        font-size: 68px;
+        line-height: 1.02;
+        letter-spacing: -0.04em;
+      }
+
+      .subtitle {
+        max-width: 740px;
+        font-size: 23px;
+        line-height: 1.55;
+        color: var(--muted);
+      }
+
+      .highlights {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px;
+        margin-top: 32px;
+      }
+
+      .highlight {
+        padding: 18px;
+        border-radius: 20px;
+        background: rgba(15, 23, 42, 0.78);
+        border: 1px solid rgba(148, 163, 184, 0.15);
+      }
+
+      .highlight strong {
+        display: block;
+        margin-bottom: 8px;
+        font-size: 18px;
+      }
+
+      .highlight span {
+        color: var(--muted);
+        line-height: 1.5;
+        font-size: 15px;
+      }
+
+      .flow {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        margin-top: 28px;
+        padding: 18px 22px;
+        border-radius: 20px;
+        background: rgba(2, 6, 23, 0.55);
+        border: 1px solid rgba(96, 165, 250, 0.16);
+      }
+
+      .flow .step {
+        padding: 10px 14px;
+        border-radius: 14px;
+        background: rgba(30, 41, 59, 0.85);
+        color: #dbeafe;
+        font-weight: 600;
+        font-size: 15px;
+      }
+
+      .arrow {
+        color: #5ea4ff;
+        font-size: 24px;
+      }
+
+      .right {
+        padding: 30px;
+        display: grid;
+        grid-template-rows: auto 1fr;
+        gap: 18px;
+      }
+
+      .browser {
+        padding: 18px;
+        border-radius: 24px;
+        background: rgba(2, 6, 23, 0.64);
+        border: 1px solid rgba(148, 163, 184, 0.12);
+      }
+
+      .browser-top {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        margin-bottom: 18px;
+      }
+
+      .window-dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 999px;
+      }
+
+      .window-dot.red { background: #fb7185; }
+      .window-dot.yellow { background: #fbbf24; }
+      .window-dot.green { background: #34d399; }
+
+      .tabs {
+        display: grid;
+        gap: 12px;
+      }
+
+      .tab {
+        border-radius: 18px;
+        border: 1px solid rgba(148, 163, 184, 0.16);
+        background: rgba(15, 23, 42, 0.82);
+        padding: 16px 18px;
+      }
+
+      .tab-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 10px;
+      }
+
+      .tab-title {
+        font-size: 17px;
+        font-weight: 700;
+      }
+
+      .pill {
+        padding: 6px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .blue { background: rgba(96, 165, 250, 0.18); color: #93c5fd; }
+      .green-pill { background: rgba(34, 197, 94, 0.18); color: #86efac; }
+      .amber { background: rgba(245, 158, 11, 0.18); color: #fcd34d; }
+
+      .tab-lines {
+        display: grid;
+        gap: 8px;
+      }
+
+      .line {
+        height: 10px;
+        border-radius: 999px;
+        background: rgba(148, 163, 184, 0.18);
+      }
+
+      .line.short { width: 42%; }
+      .line.mid { width: 64%; }
+      .line.long { width: 100%; }
+
+      .legend {
+        display: grid;
+        gap: 12px;
+      }
+
+      .legend-card {
+        padding: 18px;
+        border-radius: 18px;
+        background: rgba(2, 6, 23, 0.58);
+        border: 1px solid rgba(148, 163, 184, 0.12);
+      }
+
+      .legend-card h3 {
+        margin: 0 0 10px;
+        font-size: 17px;
+      }
+
+      .legend-card p {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.55;
+        font-size: 15px;
+      }
+
+      .footer {
+        margin-top: 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        color: var(--muted);
+        font-size: 15px;
+      }
+
+      .brand {
+        color: #dbeafe;
+        font-weight: 700;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="frame">
+      <div class="hero">
+        <section class="panel left">
+          <div>
+            <div class="eyebrow"><span class="dot"></span> Parallel Browser Automation For MCP</div>
+            <h1>playwright-mcp-tabbed</h1>
+            <div class="subtitle">
+              Give every agent its own browser tab while keeping one shared login session. Built for Cursor and other MCP clients that need reliable parallel browser workflows.
+            </div>
+
+            <div class="highlights">
+              <div class="highlight">
+                <strong>Per-tool `tab_index`</strong>
+                <span>No shared current-tab pointer. Each tool call targets the intended tab explicitly.</span>
+              </div>
+              <div class="highlight">
+                <strong>Shared auth state</strong>
+                <span>All tabs live in the same browser context, so cookies and login state are reused.</span>
+              </div>
+              <div class="highlight">
+                <strong>Multi-agent friendly</strong>
+                <span>Ideal for batch bug fixing, parallel QA, and side-by-side verification workflows.</span>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <div class="flow">
+              <div class="step">Main Agent Logs In</div>
+              <div class="arrow">→</div>
+              <div class="step">Create Tabs</div>
+              <div class="arrow">→</div>
+              <div class="step">Assign `tab_index`</div>
+              <div class="arrow">→</div>
+              <div class="step">Run In Parallel</div>
+            </div>
+
+            <div class="footer">
+              <span class="brand">songofhawk/playwright-mcp-tabbed</span>
+              <span>MIT Licensed</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel right">
+          <div class="browser">
+            <div class="browser-top">
+              <span class="window-dot red"></span>
+              <span class="window-dot yellow"></span>
+              <span class="window-dot green"></span>
+            </div>
+
+            <div class="tabs">
+              <div class="tab">
+                <div class="tab-top">
+                  <div class="tab-title">Tab 0 · Bug #A102</div>
+                  <span class="pill blue">Agent A</span>
+                </div>
+                <div class="tab-lines">
+                  <div class="line long"></div>
+                  <div class="line mid"></div>
+                  <div class="line short"></div>
+                </div>
+              </div>
+
+              <div class="tab">
+                <div class="tab-top">
+                  <div class="tab-title">Tab 1 · Bug #A108</div>
+                  <span class="pill green-pill">Agent B</span>
+                </div>
+                <div class="tab-lines">
+                  <div class="line long"></div>
+                  <div class="line long"></div>
+                  <div class="line short"></div>
+                </div>
+              </div>
+
+              <div class="tab">
+                <div class="tab-top">
+                  <div class="tab-title">Tab 2 · Compare Vue2 / Vue3</div>
+                  <span class="pill amber">Agent C</span>
+                </div>
+                <div class="tab-lines">
+                  <div class="line mid"></div>
+                  <div class="line long"></div>
+                  <div class="line short"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="legend">
+            <div class="legend-card">
+              <h3>Typical use cases</h3>
+              <p>Batch-fix ClickUp bugs, verify multiple routes after a refactor, compare two environments, or split one long browser workflow across several agents.</p>
+            </div>
+            <div class="legend-card">
+              <h3>Why not just `browser_tabs.select`?</h3>
+              <p>Because a shared active tab becomes a race condition under concurrency. Explicit `tab_index` keeps intent stable on every tool call.</p>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </body>
+</html>
