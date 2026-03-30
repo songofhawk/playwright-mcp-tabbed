@@ -2,11 +2,32 @@
   "name": "playwright-mcp-tabbed",
   "version": "1.0.0",
   "description": "Playwright MCP server with per-tool tab_index support for parallel agent use",
+  "author": "SongOfHawk",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/songofhawk/playwright-mcp-tabbed.git"
+  },
+  "homepage": "https://github.com/songofhawk/playwright-mcp-tabbed#readme",
+  "bugs": {
+    "url": "https://github.com/songofhawk/playwright-mcp-tabbed/issues"
+  },
+  "keywords": [
+    "playwright",
+    "mcp",
+    "cursor",
+    "browser-automation",
+    "parallel-agents"
+  ],
   "main": "dist/index.js",
   "bin": {
     "playwright-mcp-tabbed": "dist/index.js"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",

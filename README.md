@@ -1,11 +1,24 @@
 # playwright-mcp-tabbed
 
-一个自定义的 Playwright MCP server，核心目标是给每个浏览器工具增加 `tab_index` 参数，方便多个 sub-agent 并行操作不同标签页，同时共享同一个浏览器 context 的登录状态。
+A custom Playwright MCP server that adds `tab_index` support to browser tools so multiple agents can operate on separate tabs while sharing the same browser context and login state.
 
-## 已实现
+## Why This Exists
+
+The official `@playwright/mcp` tools are centered around a shared current page. That works well for single-agent flows, but it becomes a bottleneck in multi-agent workflows where different agents need to operate on different tabs in parallel.
+
+This project keeps one shared browser context and lets callers explicitly target a tab with `tab_index`.
+
+## Features
+
+- Adds `tab_index` to nearly all browser tools
+- Keeps tabs in the same browser context so cookies and login state are shared
+- Supports parallel agent workflows without relying on a shared current tab
+- Keeps the tool names close to the official Playwright MCP naming
+
+## Supported Tools
 
 - `browser_tabs`
-  - `action: "list" | "new" | "close"`
+  Supports `action: "list" | "new" | "close"`
 - `browser_navigate`
 - `browser_snapshot`
 - `browser_take_screenshot`
@@ -28,7 +41,7 @@
 - `browser_close`
 - `browser_install`
 
-除 `browser_tabs` 和 `browser_close` 外，其余工具都支持可选参数：
+All tools except `browser_tabs`, `browser_close`, and `browser_install` support an optional `tab_index` argument:
 
 ```json
 {
@@ -36,24 +49,62 @@
 }
 ```
 
-## 典型使用流程
+## Differences From Official Playwright MCP
 
-1. 主 agent 调用 `browser_tabs` with `action: "new"` 多次创建标签页
-2. 记录每个标签页的 `index`
-3. 将不同的 `tab_index` 分配给不同 sub-agent
-4. sub-agent 在所有浏览器工具调用中都显式传入自己的 `tab_index`
+- `browser_tabs.select` is intentionally not implemented
+- Tab selection is replaced by explicit `tab_index` routing on each tool call
+- The goal is deterministic multi-agent usage instead of a shared active-tab model
 
-## Cursor 配置
+## Installation
 
-已在 `~/.cursor/mcp.json` 中新增：
+```bash
+npm install
+npm run build
+```
+
+## Local Development
+
+```bash
+npm run dev
+```
+
+## Cursor MCP Configuration
+
+Add this to your `~/.cursor/mcp.json`:
 
 ```json
-"playwright-tabbed": {
-  "command": "node",
-  "args": [
-    "/Users/helix/gitrepo/playwright-mcp-tabbed/dist/index.js"
-  ]
+{
+  "mcpServers": {
+    "playwright-tabbed": {
+      "command": "node",
+      "args": [
+        "/absolute/path/to/playwright-mcp-tabbed/dist/index.js"
+      ]
+    }
+  }
 }
 ```
 
-原来的官方 `playwright` server 保留不动。
+You can keep the official `playwright` MCP server alongside it and only use `playwright-tabbed` for concurrent agent workflows.
+
+## Typical Multi-Agent Flow
+
+1. The main agent logs in once.
+2. The main agent creates N tabs with `browser_tabs` and records each tab index.
+3. Each sub-agent receives its own `tab_index`.
+4. Every browser tool call from that sub-agent includes the assigned `tab_index`.
+
+Example:
+
+```json
+{
+  "url": "http://localhost:3000",
+  "tab_index": 2
+}
+```
+
+## Publishing Notes
+
+- License: MIT
+- Repository: `songofhawk/playwright-mcp-tabbed`
+- Recommended use case: Cursor or other MCP clients running parallel browser tasks
