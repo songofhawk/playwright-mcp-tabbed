@@ -3,6 +3,53 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { tabManager } from './tabManager';
 
+const NO_TAB_TOOLS = new Set([
+  'browser_tabs',
+  'browser_close',
+  'browser_install',
+  'browser_context_info',
+]);
+
+function parseOrigin(url: string): string | null {
+  try {
+    const u = new URL(url);
+    return `${u.protocol}//${u.host}`;
+  } catch {
+    return null;
+  }
+}
+
+function resolveNavigateUrl(url: string, baseUrl?: string): string {
+  const trimmed = url.trim();
+  if (/^https?:\/\//i.test(trimmed) || trimmed.startsWith('about:') || trimmed.startsWith('data:')) {
+    return trimmed;
+  }
+  const envBase = process.env.PLAYWRIGHT_MCP_BASE_URL?.trim();
+  const base = (baseUrl ?? envBase ?? '').replace(/\/$/, '');
+  if (trimmed.startsWith('/') && base) {
+    return `${base}${trimmed}`;
+  }
+  if (trimmed.startsWith('/') && !base) {
+    throw new Error(
+      'Relative URL requires a base: pass base_url on browser_navigate or set env PLAYWRIGHT_MCP_BASE_URL (e.g. http://127.0.0.1:3000).'
+    );
+  }
+  return trimmed;
+}
+
+async function resolveToolTab(args: Record<string, unknown>): Promise<number> {
+  const tabIdRaw = args.tab_id;
+  const hasTabId =
+    tabIdRaw !== undefined && tabIdRaw !== null && String(tabIdRaw).trim() !== '';
+  if (hasTabId) {
+    if (args.tab_index !== undefined) {
+      throw new Error('Pass either tab_index or tab_id, not both.');
+    }
+    return tabManager.resolveTabId(String(tabIdRaw));
+  }
+  return tabManager.resolveTabIndex(args.tab_index as number | undefined);
+}
+
 // ─── Type helpers ────────────────────────────────────────────────────────────
 
 type TextContent = { type: 'text'; text: string };
@@ -33,12 +80,18 @@ function stringifyResult(value: unknown): string {
   return JSON.stringify(value, null, 2);
 }
 
-// ─── Tab index schema (shared across tools) ──────────────────────────────────
+// ─── Tab reference schema (shared across tools) ───────────────────────────────
 
-const tabIndexProp = {
+const tabRefProps = {
   tab_index: {
     type: 'number',
-    description: 'Tab index to operate on. If omitted, uses tab 0. Use browser_tabs to create and list tabs.',
+    description:
+      'Tab index from browser_tabs list. If omitted, uses the lowest-index tab. Mutually exclusive with tab_id.',
+  },
+  tab_id: {
+    type: 'string',
+    description:
+      'Stable tab id from browser_tabs list; preferred when multiple agents run in parallel. Mutually exclusive with tab_index.',
   },
 };
 
@@ -54,31 +107,68 @@ export const toolDefinitions: Tool[] = [
         action: {
           type: 'string',
           enum: ['list', 'new', 'close'],
-          description: 'list: list all tabs with index/url/title. new: open a new blank tab and return its index. close: close a specific tab.',
+          description:
+            'list: all tabs with index, tab_id, label, url, title. new: blank tab (returns index + tab_id). close: close by index.',
         },
         index: { type: 'number', description: 'Tab index to close (required for close action).' },
+        label: {
+          type: 'string',
+          description: 'Optional label for the new tab (action new only); shown in list for parallel agent bookkeeping.',
+        },
       },
       required: ['action'],
     },
   },
   {
+    name: 'browser_context_info',
+    description:
+      'Describe the shared browser context: all tabs, origins, and a note that cookies/storage are per-origin (localhost vs 127.0.0.1 are different).',
+    inputSchema: {
+      type: 'object',
+      properties: {},
+    },
+  },
+  {
     name: 'browser_navigate',
-    description: 'Navigate to a URL in the specified tab.',
+    description:
+      'Navigate to a URL in the specified tab. Relative paths like /foo require base_url or PLAYWRIGHT_MCP_BASE_URL.',
     inputSchema: {
       type: 'object',
       properties: {
-        url: { type: 'string', description: 'URL to navigate to.' },
-        ...tabIndexProp,
+        url: { type: 'string', description: 'Absolute URL, or path starting with / if base_url / env base is set.' },
+        base_url: {
+          type: 'string',
+          description:
+            'Optional origin for relative URLs (e.g. http://127.0.0.1:3000). Overrides PLAYWRIGHT_MCP_BASE_URL for this call.',
+        },
+        wait_until: {
+          type: 'string',
+          enum: ['domcontentloaded', 'load', 'networkidle'],
+          description: 'When navigation is considered done (default: domcontentloaded).',
+        },
+        timeout: { type: 'number', description: 'Navigation timeout in ms (default: 30000).' },
+        ...tabRefProps,
       },
       required: ['url'],
     },
   },
   {
     name: 'browser_snapshot',
-    description: 'Take an accessibility snapshot (structured DOM text) of the page. Use this instead of screenshot for understanding page structure.',
+    description:
+      'Accessibility snapshot (structured DOM text). Use root_selector to narrow scope; max_chars avoids huge MCP payloads.',
     inputSchema: {
       type: 'object',
-      properties: { ...tabIndexProp },
+      properties: {
+        root_selector: {
+          type: 'string',
+          description: 'CSS selector for the subtree to snapshot (default: body).',
+        },
+        max_chars: {
+          type: 'number',
+          description: 'If set, truncate snapshot to this many characters and append a notice.',
+        },
+        ...tabRefProps,
+      },
     },
   },
   {
@@ -88,7 +178,7 @@ export const toolDefinitions: Tool[] = [
       type: 'object',
       properties: {
         full_page: { type: 'boolean', description: 'Capture full page (default: false).' },
-        ...tabIndexProp,
+        ...tabRefProps,
       },
     },
   },
@@ -102,19 +192,23 @@ export const toolDefinitions: Tool[] = [
           type: 'string',
           description: 'A JavaScript function body or arrow function. It will receive page as the first argument.',
         },
-        ...tabIndexProp,
+        ...tabRefProps,
       },
       required: ['code'],
     },
   },
   {
     name: 'browser_click',
-    description: 'Click an element on the page.',
+    description:
+      'Click an element. Use force:true to bypass actionability checks when overlays block; trial:true to verify hit target without clicking.',
     inputSchema: {
       type: 'object',
       properties: {
         selector: { type: 'string', description: 'CSS selector or text selector (e.g. "text=Submit").' },
-        ...tabIndexProp,
+        timeout: { type: 'number', description: 'Max wait for element in ms (Playwright default applies if omitted).' },
+        force: { type: 'boolean', description: 'If true, skip actionability checks (e.g. covered by overlay).' },
+        trial: { type: 'boolean', description: 'If true, perform a trial click without actually clicking.' },
+        ...tabRefProps,
       },
       required: ['selector'],
     },
@@ -128,7 +222,7 @@ export const toolDefinitions: Tool[] = [
         selector: { type: 'string', description: 'CSS selector of the input element.' },
         text: { type: 'string', description: 'Text to type.' },
         clear_first: { type: 'boolean', description: 'Clear existing text before typing (default: false).' },
-        ...tabIndexProp,
+        ...tabRefProps,
       },
       required: ['selector', 'text'],
     },
@@ -151,7 +245,7 @@ export const toolDefinitions: Tool[] = [
             required: ['selector', 'value'],
           },
         },
-        ...tabIndexProp,
+        ...tabRefProps,
       },
       required: ['fields'],
     },
@@ -169,7 +263,7 @@ export const toolDefinitions: Tool[] = [
             type: 'string',
           },
         },
-        ...tabIndexProp,
+        ...tabRefProps,
       },
     },
   },
@@ -180,7 +274,7 @@ export const toolDefinitions: Tool[] = [
       type: 'object',
       properties: {
         selector: { type: 'string', description: 'CSS selector of the element to hover.' },
-        ...tabIndexProp,
+        ...tabRefProps,
       },
       required: ['selector'],
     },
@@ -193,7 +287,7 @@ export const toolDefinitions: Tool[] = [
       properties: {
         selector: { type: 'string', description: 'CSS selector of the <select> element.' },
         value: { type: 'string', description: 'Option value or label to select.' },
-        ...tabIndexProp,
+        ...tabRefProps,
       },
       required: ['selector', 'value'],
     },
@@ -205,7 +299,7 @@ export const toolDefinitions: Tool[] = [
       type: 'object',
       properties: {
         key: { type: 'string', description: 'Key to press, e.g. "Enter", "Escape", "Tab", "ArrowDown".' },
-        ...tabIndexProp,
+        ...tabRefProps,
       },
       required: ['key'],
     },
@@ -223,7 +317,7 @@ export const toolDefinitions: Tool[] = [
           description: 'State to wait for (default: visible).',
         },
         timeout: { type: 'number', description: 'Max wait time in ms (default: 10000).' },
-        ...tabIndexProp,
+        ...tabRefProps,
       },
       required: ['selector'],
     },
@@ -235,7 +329,7 @@ export const toolDefinitions: Tool[] = [
       type: 'object',
       properties: {
         code: { type: 'string', description: 'JavaScript code to execute. Can return a value.' },
-        ...tabIndexProp,
+        ...tabRefProps,
       },
       required: ['code'],
     },
@@ -245,15 +339,19 @@ export const toolDefinitions: Tool[] = [
     description: 'Navigate back in history.',
     inputSchema: {
       type: 'object',
-      properties: { ...tabIndexProp },
+      properties: { ...tabRefProps },
     },
   },
   {
     name: 'browser_network_requests',
-    description: 'List recent network requests made by the page.',
+    description: 'List recent network requests captured for this tab (since tracking started).',
     inputSchema: {
       type: 'object',
-      properties: { ...tabIndexProp },
+      properties: {
+        limit: { type: 'number', description: 'Max number of entries from the end of the log (default: 50).' },
+        url_contains: { type: 'string', description: 'If set, only return requests whose URL includes this substring.' },
+        ...tabRefProps,
+      },
     },
   },
   {
@@ -261,7 +359,7 @@ export const toolDefinitions: Tool[] = [
     description: 'Get console messages (log, warn, error) from the page.',
     inputSchema: {
       type: 'object',
-      properties: { ...tabIndexProp },
+      properties: { ...tabRefProps },
     },
   },
   {
@@ -272,7 +370,7 @@ export const toolDefinitions: Tool[] = [
       properties: {
         width: { type: 'number', description: 'Viewport width in pixels.' },
         height: { type: 'number', description: 'Viewport height in pixels.' },
-        ...tabIndexProp,
+        ...tabRefProps,
       },
       required: ['width', 'height'],
     },
@@ -285,7 +383,7 @@ export const toolDefinitions: Tool[] = [
       properties: {
         source_selector: { type: 'string', description: 'CSS selector of element to drag from.' },
         target_selector: { type: 'string', description: 'CSS selector of element to drag to.' },
-        ...tabIndexProp,
+        ...tabRefProps,
       },
       required: ['source_selector', 'target_selector'],
     },
@@ -302,7 +400,7 @@ export const toolDefinitions: Tool[] = [
           description: 'Whether to accept or dismiss the dialog.',
         },
         prompt_text: { type: 'string', description: 'Text to enter if the dialog is a prompt.' },
-        ...tabIndexProp,
+        ...tabRefProps,
       },
       required: ['action'],
     },
@@ -357,10 +455,10 @@ async function ensureTabTracking(tabIndex: number) {
 
 export async function handleTool(name: string, args: Record<string, unknown>): Promise<ToolResult> {
   try {
-    const requestedTabIndex = args.tab_index as number | undefined;
-    const resolvedTabIndex = name === 'browser_tabs' || name === 'browser_close'
-      ? undefined
-      : await tabManager.resolveTabIndex(requestedTabIndex);
+    let resolvedTabIndex: number | undefined;
+    if (!NO_TAB_TOOLS.has(name)) {
+      resolvedTabIndex = await resolveToolTab(args);
+    }
 
     switch (name) {
 
@@ -372,9 +470,10 @@ export async function handleTool(name: string, args: Record<string, unknown>): P
           return ok(JSON.stringify(tabs, null, 2));
         }
         if (action === 'new') {
-          const { index } = await tabManager.newTabAndGetIndex();
+          const label = args.label as string | undefined;
+          const { index, tab_id } = await tabManager.newTabAndGetIndex(label);
           await ensureTabTracking(index);
-          return ok(`Created new tab with index ${index}`);
+          return ok(`Created new tab with index ${index}, tab_id ${tab_id}`);
         }
         if (action === 'close') {
           const index = args.index as number;
@@ -386,20 +485,59 @@ export async function handleTool(name: string, args: Record<string, unknown>): P
         return err(`Unknown browser_tabs action: ${action}`);
       }
 
+      // ── browser_context_info ───────────────────────────────────────────────
+      case 'browser_context_info': {
+        const tabs = await tabManager.listTabsAsync();
+        const origins = [...new Set(tabs.map(t => parseOrigin(t.url)).filter((o): o is string => Boolean(o)))];
+        const payload = {
+          shared_browser_context: true,
+          note:
+            'All tabs share one BrowserContext. Cookies and localStorage are per-origin (scheme + host + port). http://localhost:3000 and http://127.0.0.1:3000 (or 127.0.2.2) are different origins — use one host consistently or log in on each.',
+          env_PLAYWRIGHT_MCP_BASE_URL: process.env.PLAYWRIGHT_MCP_BASE_URL ?? null,
+          distinct_origins: origins,
+          tabs: tabs.map(t => ({
+            index: t.index,
+            tab_id: t.tab_id,
+            label: t.label,
+            url: t.url,
+            title: t.title,
+            origin: parseOrigin(t.url),
+          })),
+        };
+        return ok(JSON.stringify(payload, null, 2));
+      }
+
       // ── browser_navigate ──────────────────────────────────────────────────
       case 'browser_navigate': {
         const page = await tabManager.getPage(resolvedTabIndex);
         await ensureTabTracking(resolvedTabIndex!);
-        const url = args.url as string;
-        await page.goto(url, { waitUntil: 'domcontentloaded' });
-        return ok(`Navigated to ${url} (tab ${resolvedTabIndex})`);
+        const baseUrl = args.base_url as string | undefined;
+        const resolvedUrl = resolveNavigateUrl(args.url as string, baseUrl);
+        const waitUntil =
+          (args.wait_until as 'domcontentloaded' | 'load' | 'networkidle' | undefined) ?? 'domcontentloaded';
+        const timeout = (args.timeout as number | undefined) ?? 30000;
+        await page.goto(resolvedUrl, { waitUntil, timeout });
+        return ok(`Navigated to ${resolvedUrl} (tab ${resolvedTabIndex})`);
       }
 
       // ── browser_snapshot ─────────────────────────────────────────────────
       case 'browser_snapshot': {
         const page = await tabManager.getPage(resolvedTabIndex);
-        const snapshot = await page.locator('body').ariaSnapshot();
-        return ok(snapshot);
+        const root = (args.root_selector as string | undefined)?.trim() || 'body';
+        const locator = page.locator(root);
+        const count = await locator.count();
+        if (count === 0) {
+          throw new Error(`browser_snapshot: no element matches root_selector "${root}"`);
+        }
+        const snapshot = await locator.first().ariaSnapshot();
+        let text = snapshot;
+        const maxChars = args.max_chars as number | undefined;
+        if (maxChars !== undefined && maxChars > 0 && text.length > maxChars) {
+          text =
+            text.slice(0, maxChars) +
+            `\n\n... [snapshot truncated: ${snapshot.length} chars total, max_chars=${maxChars}]`;
+        }
+        return ok(text);
       }
 
       // ── browser_take_screenshot ───────────────────────────────────────────
@@ -429,7 +567,11 @@ export async function handleTool(name: string, args: Record<string, unknown>): P
       case 'browser_click': {
         const page = await tabManager.getPage(resolvedTabIndex);
         const selector = args.selector as string;
-        await page.click(selector);
+        const clickOpts: { timeout?: number; force?: boolean; trial?: boolean } = {};
+        if (args.timeout !== undefined) clickOpts.timeout = args.timeout as number;
+        if (args.force !== undefined) clickOpts.force = args.force as boolean;
+        if (args.trial !== undefined) clickOpts.trial = args.trial as boolean;
+        await page.click(selector, clickOpts);
         return ok(`Clicked "${selector}" (tab ${resolvedTabIndex})`);
       }
 
@@ -534,8 +676,13 @@ export async function handleTool(name: string, args: Record<string, unknown>): P
 
       // ── browser_network_requests ─────────────────────────────────────────
       case 'browser_network_requests': {
-        const requests = networkRequests.get(resolvedTabIndex!) ?? [];
-        return ok(JSON.stringify(requests.slice(-50), null, 2));
+        let requests = networkRequests.get(resolvedTabIndex!) ?? [];
+        const urlContains = args.url_contains as string | undefined;
+        if (urlContains) {
+          requests = requests.filter(r => r.url.includes(urlContains));
+        }
+        const limit = (args.limit as number | undefined) ?? 50;
+        return ok(JSON.stringify(requests.slice(-limit), null, 2));
       }
 
       // ── browser_console_messages ─────────────────────────────────────────

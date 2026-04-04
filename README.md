@@ -53,8 +53,13 @@ This gives you:
 
 ## Key Features
 
-- Adds `tab_index` to nearly all browser tools
-- Shares login state across tabs through one browser context
+- Adds `tab_index` (and stable `tab_id`) to nearly all browser tools
+- Shares login state across tabs through one browser context **for the same origin**
+- `browser_context_info` explains open tabs and reminds that `localhost` vs `127.0.0.1` use different cookies
+- Optional `PLAYWRIGHT_MCP_BASE_URL` plus `browser_navigate.base_url` for relative paths like `/dashboard`
+- `browser_snapshot` supports `root_selector` and `max_chars` to limit MCP payload size
+- `browser_click` supports `force`, `trial`, and `timeout` (Playwright semantics)
+- `browser_network_requests` supports `limit` and `url_contains`
 - Keeps tool names close to the official Playwright MCP naming
 - Works well in Cursor and similar MCP clients
 - Designed for deterministic parallel agent behavior
@@ -62,7 +67,9 @@ This gives you:
 ## Supported Tools
 
 - `browser_tabs`
-  Supports `action: "list" | "new" | "close"`
+  Supports `action: "list" | "new" | "close"`; `new` accepts optional `label`; list includes `tab_id` per tab
+- `browser_context_info`
+  JSON summary of tabs, origins, and per-origin storage note
 - `browser_navigate`
 - `browser_snapshot`
 - `browser_take_screenshot`
@@ -85,13 +92,21 @@ This gives you:
 - `browser_close`
 - `browser_install`
 
-All tools except `browser_tabs`, `browser_close`, and `browser_install` support an optional `tab_index` argument:
+Tools that target a page accept **either** `tab_index` **or** `tab_id` (mutually exclusive). Prefer `tab_id` when sub-agents might race on tab creation order.
 
 ```json
-{
-  "tab_index": 1
-}
+{ "tab_index": 1 }
 ```
+
+```json
+{ "tab_id": "550e8400-e29b-41d4-a716-446655440000" }
+```
+
+Exceptions (no tab argument): `browser_tabs`, `browser_close`, `browser_install`, `browser_context_info`.
+
+### Environment
+
+- `PLAYWRIGHT_MCP_BASE_URL` — optional default origin for relative URLs in `browser_navigate` (e.g. `http://127.0.0.1:3000`).
 
 ## Differences From Official `@playwright/mcp`
 
@@ -104,7 +119,14 @@ All tools except `browser_tabs`, `browser_close`, and `browser_install` support 
 ### Install
 
 ```bash
-npm install -g playwright-mcp-tabbed
+npm install
+npm run build
+```
+
+### Run locally
+
+```bash
+npm run dev
 ```
 
 ### Add to Cursor
@@ -115,9 +137,9 @@ Add this to `~/.cursor/mcp.json`:
 {
   "mcpServers": {
     "playwright-tabbed": {
-      "command": "npx",
+      "command": "node",
       "args": [
-        "playwright-mcp-tabbed"
+        "/absolute/path/to/playwright-mcp-tabbed/dist/index.js"
       ]
     }
   }
@@ -128,19 +150,21 @@ You can keep the official `playwright` server alongside it and only use `playwri
 
 ## Recommended Multi-Agent Workflow
 
-1. The main agent logs in once.
-2. The main agent creates N tabs with `browser_tabs`.
-3. Each sub-agent receives a dedicated `tab_index`.
-4. Every browser tool call from that sub-agent includes the assigned `tab_index`.
+1. The main agent logs in once (use **one host** consistently, e.g. always `http://127.0.0.1:3000`).
+2. The main agent creates N tabs with `browser_tabs` (`action: "new"`, optional `label`).
+3. Each sub-agent receives a dedicated `tab_id` (and optionally `tab_index`).
+4. Every browser tool call from that sub-agent includes that `tab_id`.
 
 Example:
 
 ```json
 {
-  "url": "http://localhost:3000",
-  "tab_index": 2
+  "url": "http://127.0.0.1:3000/orders",
+  "tab_id": "550e8400-e29b-41d4-a716-446655440000"
 }
 ```
+
+Call `browser_context_info` if login seems missing — often the tab is on a different origin than the login tab.
 
 ## When To Use It
 

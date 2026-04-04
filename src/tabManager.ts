@@ -1,9 +1,26 @@
+import { randomUUID } from 'node:crypto';
 import { Browser, BrowserContext, Page, chromium } from 'playwright';
+
+export type TabListItem = {
+  index: number;
+  tab_id: string;
+  label?: string;
+  url: string;
+  title: string;
+};
+
+type TabEntry = {
+  page: Page;
+  id: string;
+  label?: string;
+};
 
 export class TabManager {
   private browser: Browser | null = null;
   private context: BrowserContext | null = null;
-  private tabs: Map<number, Page> = new Map();
+  private tabs: Map<number, TabEntry> = new Map();
+  /** Stable id -> tab index (survives until tab is closed). */
+  private idToIndex: Map<string, number> = new Map();
   private nextIndex: number = 0;
 
   async ensureBrowser(): Promise<BrowserContext> {
@@ -14,23 +31,28 @@ export class TabManager {
     return this.context!;
   }
 
+  private removeTab(index: number): void {
+    const entry = this.tabs.get(index);
+    if (!entry) return;
+    this.tabs.delete(index);
+    this.idToIndex.delete(entry.id);
+  }
+
   async getPage(tabIndex?: number): Promise<Page> {
-    // No tabs yet — create the first one
     if (this.tabs.size === 0) {
-      return this.newTab();
+      return (await this.newTab()).page;
     }
 
-    // No index specified — return tab 0 (or the only tab)
     if (tabIndex === undefined) {
       const first = [...this.tabs.keys()].sort((a, b) => a - b)[0];
-      return this.tabs.get(first)!;
+      return this.tabs.get(first)!.page;
     }
 
-    const page = this.tabs.get(tabIndex);
-    if (!page) {
+    const entry = this.tabs.get(tabIndex);
+    if (!entry) {
       throw new Error(`Tab index ${tabIndex} does not exist. Available tabs: [${[...this.tabs.keys()].join(', ')}]`);
     }
-    return page;
+    return entry.page;
   }
 
   async resolveTabIndex(tabIndex?: number): Promise<number> {
@@ -50,56 +72,70 @@ export class TabManager {
     return tabIndex;
   }
 
-  async newTab(): Promise<Page> {
-    const context = await this.ensureBrowser();
-    const page = await context.newPage();
-    const index = this.nextIndex++;
-    this.tabs.set(index, page);
-
-    page.on('close', () => {
-      this.tabs.delete(index);
-    });
-
-    return page;
+  /** Resolve by stable tab_id (from browser_tabs list). */
+  resolveTabId(tabId: string): number {
+    const trimmed = tabId.trim();
+    if (!trimmed) {
+      throw new Error('tab_id must be a non-empty string');
+    }
+    const index = this.idToIndex.get(trimmed);
+    if (index === undefined || !this.tabs.has(index)) {
+      const known = [...this.idToIndex.keys()].slice(0, 5).join(', ');
+      throw new Error(
+        `Tab id "${trimmed}" does not exist. Known ids (sample): [${known || 'none'}]. Use browser_tabs list to see tab_id for each tab.`
+      );
+    }
+    return index;
   }
 
-  async newTabAndGetIndex(): Promise<{ index: number; page: Page }> {
+  async newTab(label?: string): Promise<TabEntry> {
+    const { entry } = await this.newTabAndGetIndex(label);
+    return entry;
+  }
+
+  async newTabAndGetIndex(label?: string): Promise<{ index: number; page: Page; tab_id: string; entry: TabEntry }> {
     const context = await this.ensureBrowser();
     const page = await context.newPage();
     const index = this.nextIndex++;
-    this.tabs.set(index, page);
+    const id = randomUUID();
+    const entry: TabEntry = { page, id, label: label?.trim() || undefined };
+    this.tabs.set(index, entry);
+    this.idToIndex.set(id, index);
 
     page.on('close', () => {
-      this.tabs.delete(index);
+      this.removeTab(index);
     });
 
-    return { index, page };
+    return { index, page, tab_id: id, entry };
   }
 
   async closeTab(tabIndex: number): Promise<void> {
-    const page = this.tabs.get(tabIndex);
-    if (!page) {
+    const entry = this.tabs.get(tabIndex);
+    if (!entry) {
       throw new Error(`Tab index ${tabIndex} does not exist`);
     }
-    await page.close();
-    this.tabs.delete(tabIndex);
+    await entry.page.close();
   }
 
-  listTabs(): Array<{ index: number; url: string; title: string }> {
-    return [...this.tabs.entries()].map(([index, page]) => ({
+  listTabs(): Array<{ index: number; tab_id: string; label?: string; url: string; title: string }> {
+    return [...this.tabs.entries()].map(([index, entry]) => ({
       index,
-      url: page.url(),
-      title: '', // title needs async call; omit for sync listing
+      tab_id: entry.id,
+      label: entry.label,
+      url: entry.page.url(),
+      title: '',
     }));
   }
 
-  async listTabsAsync(): Promise<Array<{ index: number; url: string; title: string }>> {
-    const results = [];
-    for (const [index, page] of this.tabs.entries()) {
+  async listTabsAsync(): Promise<TabListItem[]> {
+    const results: TabListItem[] = [];
+    for (const [index, entry] of this.tabs.entries()) {
       results.push({
         index,
-        url: page.url(),
-        title: await page.title(),
+        tab_id: entry.id,
+        label: entry.label,
+        url: entry.page.url(),
+        title: await entry.page.title(),
       });
     }
     return results;
@@ -111,6 +147,7 @@ export class TabManager {
       this.browser = null;
       this.context = null;
       this.tabs.clear();
+      this.idToIndex.clear();
     }
   }
 }

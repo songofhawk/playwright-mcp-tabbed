@@ -53,8 +53,13 @@
 
 ## 核心特性
 
-- 为绝大多数浏览器工具增加 `tab_index`
-- 通过共享 browser context 复用登录状态
+- 为绝大多数浏览器工具增加 `tab_index` 与稳定的 `tab_id`
+- 通过共享 browser context 复用登录状态（**同一 origin 下**各 tab 共享 cookie）
+- `browser_context_info` 汇总当前 tab、origin，并说明 `localhost` 与 `127.0.0.1` 的 cookie 不互通
+- 支持环境变量 `PLAYWRIGHT_MCP_BASE_URL` 与 `browser_navigate.base_url`，便于用 `/path` 相对路径导航
+- `browser_snapshot` 支持 `root_selector`、`max_chars`，控制 MCP 返回体积
+- `browser_click` 支持 `force`、`trial`、`timeout`（与 Playwright 语义一致）
+- `browser_network_requests` 支持 `limit`、`url_contains`
 - 工具命名尽量贴近官方 Playwright MCP
 - 适合 Cursor 和其他 MCP 客户端
 - 以“并发 Agent 下的确定性行为”为设计目标
@@ -62,7 +67,9 @@
 ## 已支持的工具
 
 - `browser_tabs`
-  支持 `action: "list" | "new" | "close"`
+  支持 `action: "list" | "new" | "close"`；`new` 可选 `label`；列表包含每个 tab 的 `tab_id`
+- `browser_context_info`
+  返回各 tab、origin 及「按 origin 隔离存储」的说明
 - `browser_navigate`
 - `browser_snapshot`
 - `browser_take_screenshot`
@@ -85,13 +92,21 @@
 - `browser_close`
 - `browser_install`
 
-除 `browser_tabs`、`browser_close`、`browser_install` 外，其余工具都支持可选参数 `tab_index`：
+面向页面的工具支持 **`tab_index` 或 `tab_id` 二选一**（不要同时传）。并行子 Agent 建议优先用 `tab_id`，避免创建顺序变化导致指错 tab。
 
 ```json
-{
-  "tab_index": 1
-}
+{ "tab_index": 1 }
 ```
+
+```json
+{ "tab_id": "550e8400-e29b-41d4-a716-446655440000" }
+```
+
+无需 tab 参数的工具：`browser_tabs`、`browser_close`、`browser_install`、`browser_context_info`。
+
+### 环境变量
+
+- `PLAYWRIGHT_MCP_BASE_URL` — 可选，作为 `browser_navigate` 中相对路径的默认站点根（如 `http://127.0.0.1:3000`）。
 
 ## 与官方 `@playwright/mcp` 的差异
 
@@ -104,7 +119,14 @@
 ### 安装
 
 ```bash
-npm install -g playwright-mcp-tabbed
+npm install
+npm run build
+```
+
+### 本地开发
+
+```bash
+npm run dev
 ```
 
 ### 在 Cursor 中配置
@@ -115,9 +137,9 @@ npm install -g playwright-mcp-tabbed
 {
   "mcpServers": {
     "playwright-tabbed": {
-      "command": "npx",
+      "command": "node",
       "args": [
-        "playwright-mcp-tabbed"
+        "/absolute/path/to/playwright-mcp-tabbed/dist/index.js"
       ]
     }
   }
@@ -128,19 +150,21 @@ npm install -g playwright-mcp-tabbed
 
 ## 推荐的多 Agent 工作流
 
-1. 主 Agent 先统一登录一次。
-2. 主 Agent 通过 `browser_tabs` 创建 N 个标签页。
-3. 给每个子 Agent 分配独立的 `tab_index`。
-4. 每个子 Agent 的所有浏览器工具调用都显式携带自己的 `tab_index`。
+1. 主 Agent 先统一登录一次（**全程固定同一 host**，例如始终用 `http://127.0.0.1:3000`）。
+2. 主 Agent 通过 `browser_tabs` 创建 N 个标签页（`action: "new"`，可选 `label`）。
+3. 给每个子 Agent 分配独立的 `tab_id`（可同时记下 `tab_index` 便于人工查看）。
+4. 每个子 Agent 的浏览器工具调用都携带自己的 `tab_id`。
 
 示例：
 
 ```json
 {
-  "url": "http://localhost:3000",
-  "tab_index": 2
+  "url": "http://127.0.0.1:3000/orders",
+  "tab_id": "550e8400-e29b-41d4-a716-446655440000"
 }
 ```
+
+若出现「新 tab 像退出登录」，先调用 `browser_context_info` 核对各 tab 的 `origin` 是否与登录 tab 一致。
 
 ## 什么时候适合用它
 
