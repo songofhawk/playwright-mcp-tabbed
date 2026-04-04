@@ -107,6 +107,7 @@
 ### 环境变量
 
 - `PLAYWRIGHT_MCP_BASE_URL` — 可选，作为 `browser_navigate` 中相对路径的默认站点根（如 `http://127.0.0.1:3000`）。
+- `PLAYWRIGHT_MCP_RECORD_VIDEO_DIR` — 可选，指定一个可写目录来启用 Playwright 录屏。设置后，共享 browser context 中新建的每个 tab/page 都会录制视频；视频文件会在页面关闭或 browser context 关闭后完成落盘。
 
 ## 与官方 `@playwright/mcp` 的差异
 
@@ -137,15 +138,18 @@ cd playwright-mcp-tabbed && npm install
   "mcpServers": {
     "playwright-tabbed": {
       "command": "node",
-      "args": [
-        "/absolute/path/to/playwright-mcp-tabbed/dist/index.js"
-      ]
+      "args": ["/absolute/path/to/playwright-mcp-tabbed/dist/index.js"],
+      "env": {
+        "PLAYWRIGHT_MCP_RECORD_VIDEO_DIR": "/absolute/path/to/recordings"
+      }
     }
   }
 }
 ```
 
 你可以保留官方 `playwright` MCP，只在并发浏览器任务里切换到 `playwright-tabbed`；也可以直接使用本 mcp 代替官方版本。
+
+如果不需要录屏，可以不配置 `env`，或者不要设置 `PLAYWRIGHT_MCP_RECORD_VIDEO_DIR`。
 
 ## Agent Skill：多标签编排
 本仓库附带一份可选的 **Agent Skill**（适用于 Cursor、Claude Code 等宿主），设计了一套使用流程：**主 Agent**如何建标签页、为**并行子 Agent**分配稳定 `tab_id`、最后汇总。

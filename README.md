@@ -107,6 +107,7 @@ Exceptions (no tab argument): `browser_tabs`, `browser_close`, `browser_install`
 ### Environment
 
 - `PLAYWRIGHT_MCP_BASE_URL` — optional default origin for relative URLs in `browser_navigate` (e.g. `http://127.0.0.1:3000`).
+- `PLAYWRIGHT_MCP_RECORD_VIDEO_DIR` — optional writable directory for Playwright video recording. When set, each tab/page created in the shared browser context records a video. Video files are finalized when the page or browser context closes.
 
 ## Differences From Official `@playwright/mcp`
 
@@ -138,15 +139,18 @@ Add this to `~/.cursor/mcp.json`:
   "mcpServers": {
     "playwright-tabbed": {
       "command": "node",
-      "args": [
-        "/absolute/path/to/playwright-mcp-tabbed/dist/index.js"
-      ]
+      "args": ["/absolute/path/to/playwright-mcp-tabbed/dist/index.js"],
+      "env": {
+        "PLAYWRIGHT_MCP_RECORD_VIDEO_DIR": "/absolute/path/to/recordings"
+      }
     }
   }
 }
 ```
 
 You can keep the official `playwright` server alongside it and only use `playwright-tabbed` for concurrent browser tasks.
+
+If you do not need recording, omit `env` or leave `PLAYWRIGHT_MCP_RECORD_VIDEO_DIR` unset.
 
 ## Agent skill: multi-tab orchestration
 

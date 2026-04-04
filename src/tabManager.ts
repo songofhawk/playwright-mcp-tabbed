@@ -26,7 +26,10 @@ export class TabManager {
   async ensureBrowser(): Promise<BrowserContext> {
     if (!this.browser) {
       this.browser = await chromium.launch({ headless: false });
-      this.context = await this.browser.newContext();
+      const videoDir = process.env.PLAYWRIGHT_MCP_RECORD_VIDEO_DIR;
+      this.context = await this.browser.newContext(
+        videoDir ? { recordVideo: { dir: videoDir } } : {}
+      );
     }
     return this.context!;
   }
