@@ -111,26 +111,25 @@
 ## 与官方 `@playwright/mcp` 的差异
 
 - 故意不实现 `browser_tabs.select`
-- 用显式 `tab_index` 替代“切当前 tab”的模式
+- 用显式 `tab_id` 替代“切当前 tab”的模式
 - 设计目标是并发 Agent 场景，而不是共享当前活动页的交互模型
 
 ## 快速开始
 
-### 安装
+### 基于 npm 分发安装
 
 ```bash
-npm install
-npm run build
+npm install playwright-mcp-tabbed
 ```
 
-### 本地开发
+### 本地安装
 
 ```bash
-npm run dev
+git clone https://github.com/songofhawk/playwright-mcp-tabbed
+cd playwright-mcp-tabbed && npm install
 ```
 
 ### 在 Cursor 中配置
-
 把下面内容加入 `~/.cursor/mcp.json`：
 
 ```json
@@ -146,25 +145,44 @@ npm run dev
 }
 ```
 
-你可以保留官方 `playwright` MCP，只在并发浏览器任务里切换到 `playwright-tabbed`。
+你可以保留官方 `playwright` MCP，只在并发浏览器任务里切换到 `playwright-tabbed`；也可以直接使用本 mcp 代替官方版本。
 
-## 推荐的多 Agent 工作流
+## Agent Skill：多标签编排
+本仓库附带一份可选的 **Agent Skill**（适用于 Cursor、Claude Code 等宿主），设计了一套使用流程：**主 Agent**如何建标签页、为**并行子 Agent**分配稳定 `tab_id`、最后汇总。
 
-1. 主 Agent 先统一登录一次（**全程固定同一 host**，例如始终用 `http://127.0.0.1:3000`）。
-2. 主 Agent 通过 `browser_tabs` 创建 N 个标签页（`action: "new"`，可选 `label`）。
-3. 给每个子 Agent 分配独立的 `tab_id`（可同时记下 `tab_index` 便于人工查看）。
-4. 每个子 Agent 的浏览器工具调用都携带自己的 `tab_id`。
+- **在仓库中的路径：** [`skills/playwright-tabbed-orchestration/`](./skills/playwright-tabbed-orchestration/)，内含 `SKILL.md` 与辅助脚本 `scripts/resolve-base-url.js`。
+- **前提：** 在客户端中已配置 `playwright-tabbed` MCP（见上文 [在 Cursor 中配置](#在-cursor-中配置)）。
+- **说明：** **npm 包**包含服务端构建（`dist/`）与 `skills/`。安装依赖后可从 `node_modules/playwright-mcp-tabbed/skills/playwright-tabbed-orchestration` 复制；也可直接 clone 仓库或使用下文 GitHub 子路径，路径更直观。
 
-示例：
+### Skill 内容概要
+解析 `PLAYWRIGHT_BASE_URL`、打开 `N` 个 tab、拆分 URL/场景列表、并行启动 `N` 个子 Agent（各绑定一个 `tab_id`）、汇总结果。完整步骤、门禁与子 Agent 提示词模版见 [`SKILL.md`](./skills/playwright-tabbed-orchestration/SKILL.md)。
 
-```json
-{
-  "url": "http://127.0.0.1:3000/orders",
-  "tab_id": "550e8400-e29b-41d4-a716-446655440000"
-}
+### 安装 Skill
+**Cursor** — 将整个目录复制到当前 Cursor 版本识别的 skills 目录，例如：
+
+- 项目内：`<你的项目>/.cursor/skills/playwright-tabbed-orchestration/`
+- 或按 Cursor 文档使用用户级全局 skills 路径。
+
+**Claude Code** — 复制到：
+
+- `<仓库>/.claude/skills/playwright-tabbed-orchestration/`（或 Anthropic 文档中的全局 skills 位置）。
+
+**OpenAI Codex** — 使用 Codex **skill-installer**，指定本仓库与子路径（若默认分支不是 `main`，请加 `--ref`）：
+
+```bash
+python scripts/install-skill-from-github.py \
+  --repo songofhawk/playwright-mcp-tabbed \
+  --path skills/playwright-tabbed-orchestration
 ```
 
-若出现「新 tab 像退出登录」，先调用 `browser_context_info` 核对各 tab 的 `origin` 是否与登录 tab 一致。
+亦可使用树形 URL：
+`https://github.com/songofhawk/playwright-mcp-tabbed/tree/main/skills/playwright-tabbed-orchestration`
+
+复制或安装完成后，重启 Agent 或者新开会话。
+
+### 辅助脚本 `resolve-base-url.js`
+根据 `PLAYWRIGHT_BASE_URL`（环境变量，和/或 Git 仓库根目录下的 `.env.local` / `.env` / `playwright.env.local`）解析站点根 URL。若依赖业务项目里的 env 文件，请让**终端当前工作目录落在该业务仓库**，或直接导出 `PLAYWRIGHT_BASE_URL`。
+
 
 ## 什么时候适合用它
 
@@ -175,20 +193,12 @@ npm run dev
 - 你希望浏览器操作稳定落到指定 tab，而不是依赖共享当前 tab
 
 继续使用官方 `@playwright/mcp` 的情况：
-
 - 只有一个 Agent
 - 整个流程严格串行
 - 不需要多个并发任务共享标签页和会话
 
 ## 当前限制
-
 这个项目明确偏向“显式 tab 路由”，而不是“当前活动 tab”语义。如果你的调用链强依赖 `browser_tabs.select`，那它并不是完全等价替代。
 
-## 素材
-
-- README 封面图：`./assets/readme-hero.png`
-- 用于生成封面图的页面源码：`./assets/readme-hero.html`
-
 ## 开源协议
-
 MIT

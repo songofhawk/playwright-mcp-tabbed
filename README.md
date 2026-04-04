@@ -116,17 +116,17 @@ Exceptions (no tab argument): `browser_tabs`, `browser_close`, `browser_install`
 
 ## Quick Start
 
-### Install
+### Install via npm
 
 ```bash
-npm install
-npm run build
+npm install playwright-mcp-tabbed
 ```
 
-### Run locally
+### Local install
 
 ```bash
-npm run dev
+git clone https://github.com/songofhawk/playwright-mcp-tabbed
+cd playwright-mcp-tabbed && npm install
 ```
 
 ### Add to Cursor
@@ -148,23 +148,53 @@ Add this to `~/.cursor/mcp.json`:
 
 You can keep the official `playwright` server alongside it and only use `playwright-tabbed` for concurrent browser tasks.
 
-## Recommended Multi-Agent Workflow
+## Agent skill: multi-tab orchestration
 
-1. The main agent logs in once (use **one host** consistently, e.g. always `http://127.0.0.1:3000`).
-2. The main agent creates N tabs with `browser_tabs` (`action: "new"`, optional `label`).
-3. Each sub-agent receives a dedicated `tab_id` (and optionally `tab_index`).
-4. Every browser tool call from that sub-agent includes that `tab_id`.
+This repository includes an optional **Agent Skill** (for Cursor, Claude Code, and similar hosts) that documents how a **main agent** should create tabs, assign stable `tab_id`s to **parallel sub-agents**, and merge results—aligned with this MCP server.
 
-Example:
+- **Path in repo:** [`skills/playwright-tabbed-orchestration/`](./skills/playwright-tabbed-orchestration/) — contains `SKILL.md` and helper script `scripts/resolve-base-url.js`.
+- **Prerequisite:** enable the `playwright-tabbed` MCP server in your client (see [Add to Cursor](#add-to-cursor)).
+- **Note:** The published **npm package** includes `dist/` and `skills/`; you can copy from `node_modules/playwright-mcp-tabbed/skills/playwright-tabbed-orchestration` after install, or clone / use GitHub subpath (below) so paths stay stable.
 
-```json
-{
-  "url": "http://127.0.0.1:3000/orders",
-  "tab_id": "550e8400-e29b-41d4-a716-446655440000"
-}
+### What the skill covers
+
+Resolve `PLAYWRIGHT_BASE_URL`, open `N` tabs, split URL/scenario lists, spawn `N` sub-agents (each scoped to one `tab_id`), then summarize. Full steps, guardrails, and a sub-agent prompt template are in [`SKILL.md`](./skills/playwright-tabbed-orchestration/SKILL.md).
+
+### Install the skill
+
+**Cursor** — copy the folder into a skills directory your Cursor version recognizes, for example:
+
+- Project-local: `<your-project>/.cursor/skills/playwright-tabbed-orchestration/`
+- Or your user-level skills path per current Cursor documentation.
+
+**Claude Code** — copy to:
+
+- `<repo>/.claude/skills/playwright-tabbed-orchestration/` (or the global skills location described in Anthropic’s docs).
+
+**OpenAI Codex** — use the Codex **skill-installer** helper against this repository and the subpath below (adjust `--ref` if not on `main`):
+
+```bash
+python scripts/install-skill-from-github.py \
+  --repo songofhawk/playwright-mcp-tabbed \
+  --path skills/playwright-tabbed-orchestration
 ```
 
-Call `browser_context_info` if login seems missing — often the tab is on a different origin than the login tab.
+Equivalent tree URL:
+
+`https://github.com/songofhawk/playwright-mcp-tabbed/tree/main/skills/playwright-tabbed-orchestration`
+
+Restart Cursor / Codex (or reload skills) after copying or installing.
+
+### Helper: `resolve-base-url.js`
+
+From the skill root:
+
+```bash
+cd skills/playwright-tabbed-orchestration
+node scripts/resolve-base-url.js --help
+```
+
+Prints the site root URL from `PLAYWRIGHT_BASE_URL` (environment variable and/or git-root `.env.local` / `.env` / `playwright.env.local`). When resolving from project files, run with your **terminal cwd on the application repository**, or set `PLAYWRIGHT_BASE_URL` explicitly.
 
 ## When To Use It
 
@@ -183,11 +213,6 @@ Stay with the official `@playwright/mcp` when:
 ## Current Limitation
 
 This project intentionally favors explicit tab routing over active-tab semantics. If your tooling depends on `browser_tabs.select`, this server is not a drop-in replacement for that specific behavior.
-
-## Media
-
-- README cover image: `./assets/readme-hero.png`
-- Source used to render the image: `./assets/readme-hero.html`
 
 ## License
 

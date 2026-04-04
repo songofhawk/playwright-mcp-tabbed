@@ -1,6 +1,6 @@
 {
   "name": "playwright-mcp-tabbed",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Playwright MCP server with per-tool tab_index support for parallel agent use",
   "author": "SongOfHawk <songofhawk@gmail.com>",
   "license": "MIT",
@@ -26,6 +26,7 @@
   "files": [
     "dist",
     "assets",
+    "skills",
     "README.md",
     "README.zh-CN.md",
     "LICENSE"
